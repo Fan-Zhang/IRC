@@ -2,22 +2,120 @@ import select
 import socket
 import sys
 
+# TODO:
+# 1. REMOVE EMPTY ROOM
+# 2. PING - Server can gracefully handle client crashes
+# 3. QUIT
+
+#####################################################
+# User Class
+#####################################################
+
+class User:
+    def __init__(self, name, socket):
+        self.name = name
+        self.socket = socket
+        self.rooms = []
+
+    def getName(self):
+        return self.name
+
+    def getRooms(self):
+        return self.rooms
+
+    def getSocket(self):
+        return self.socket
+
+    def joinRoom(self, room):
+        if room in self.rooms:
+            return "ERR_ALREADY_IN_ROOM"
+        else:
+            self.rooms.append(room)
+            return "OK_JOIN_ROOM"
+
+    def leaveRoom(self, room):
+        if room not in self.rooms:
+            return "ERR_NOT_IN_ROOM"
+        else:
+            self.rooms.remove(room)
+            return "OK_LEAVE_ROOM"
+
+
+#####################################################
 # globals
-users = set()
+#####################################################
+users = set()  # a set of User objects
+rooms = {}  # a dictionary - key: room name  value: set of sockets
 
-def register(user):
-    if user in users:
-        return "ERR_USERNAME_TAKEN"
-    else:
-        users.add(user)
-        return "OK_REG"
+def register(name, socket):
+    for user in users:
+        if user.getName() == name:
+            return "ERR_USERNAME_TAKEN"
 
-    
-def dispatch(data, connection):
+    newUser = User(name, socket)
+    users.add(newUser)
+    return "OK_REG"
+
+def create(room, socket):
+    if room in rooms:
+        return "ERR_ROOM_NAME_TAKEN"
+
+    for user in users:
+        if user.getSocket() == socket:
+            rooms[room] = {socket}
+            print ("Created room: ", room)
+            return user.joinRoom(room)
+
+    print ("User not exist")
+    return "ERR_USER_NOT_EXIST"
+
+def join(room, socket):
+    if room not in rooms:
+        return "ERR_ROOM_NOT_EXIST"
+
+    for user in users:
+        if user.getSocket() == socket:
+            rooms[room].add(socket)
+            print ("Joined room: ", rooms)
+            return user.joinRoom(room)
+
+    return "ERR_USER_NOT_EXIST"
+
+def leave(room, socket):
+    if room not in rooms:
+        return "ERR_ROOM_NOT_EXIST"
+
+    for user in users:
+        if user.getSocket() == socket:
+            rooms[room].remove(socket)
+            print ("Left room: ", rooms)
+            return user.leaveRoom(room)
+
+    return "ERR_USER_NOT_EXIST"
+
+def listRooms():
+    rms = ' '.join(rooms.keys())
+    print "OK_LIST "+rms
+    return ("OK_LIST "+rms)
+
+#def listMembers(room):
+#    rooms[room]
+
+def dispatch(data, socket):
     args = data.split(" ")
     cmd = args[0]
+    if len(args) > 1:
+        info = args[1]
     if cmd == "REGISTER":
-        return register(args[1])
+        return register(info, socket)
+    elif cmd == "CREATE":
+        return create(info, socket)
+    elif cmd == "JOIN":
+        return join(info, socket)
+    elif cmd == "LEAVE":
+        return leave(info, socket)
+    elif cmd == "LIST":
+        return listRooms()
     else:
         return "ERR_INVALID"
 
