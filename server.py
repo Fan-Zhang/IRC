@@ -5,7 +5,8 @@ import sys
 # TODO:
 # 1. REMOVE EMPTY ROOM
 # 2. PING - Server can gracefully handle client crashes
-# 3. QUIT
+# 3. Create another thread to ping the clients periodically
+# 4. QUIT
 
 #####################################################
 # User Class
@@ -15,7 +16,7 @@ class User:
     def __init__(self, name, socket):
         self.name = name
         self.socket = socket
-        self.rooms = []
+        self.rooms = []  # list of room names
 
     def getName(self):
         return self.name
@@ -93,13 +94,33 @@ def leave(room, socket):
 
     return "ERR_USER_NOT_EXIST"
 
+
 def listRooms():
     rms = ' '.join(rooms.keys())
     print "OK_LIST "+rms
     return ("OK_LIST "+rms)
 
-#def listMembers(room):
-#    rooms[room]
+def listMembers(room):
+    members = []
+    sockets = rooms[room]
+    # TODO
+    for socket in sockets:
+        for user in users:
+            if user.getSocket() == socket:
+                members.append(user.getName())
+    print "OK_MEMBERS "+' '.join(members)
+    return ("OK_MEMBERS "+' '.join(members))
+ 
+def messageTo(room, socket):
+    if room not in rooms:
+        return "ERR_ROOM_NOT_EXIST"
+
+    for user in users:
+        if user.getSocket() == socket:
+            return ("OK_MESSAGE " + user.getName() + ' ' + room)
+
+    return "ERR_USER_NOT_EXIST"
+
 
 def dispatch(data, socket):
     args = data.split(" ")
@@ -116,6 +137,10 @@ def dispatch(data, socket):
         return leave(info, socket)
     elif cmd == "LIST":
         return listRooms()
+    elif cmd == "MEMBERS":
+        return listMembers(info)
+    elif cmd == "MESSAGE":
+        return messageTo(info, socket)
     else:
         return "ERR_INVALID"
 
@@ -147,7 +172,17 @@ def main():
                 if data:
                     response = dispatch(data, s)
                     if response:
-                        s.send(response)
+                        resp = response.split(' ')
+                        status = resp[0]
+                        if status == "OK_MESSAGE":
+                            print data
+                            s.send(status)
+                            user = resp[1]
+                            room = resp[2]
+                            for sckt in rooms[room]:
+                                sckt.send(data + ' ' + user)
+                        else:
+                            s.send(response)
                     # if no valid response for this request
                     # continue to the next client
                     else:

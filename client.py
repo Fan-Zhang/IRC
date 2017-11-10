@@ -24,43 +24,59 @@ class Client:
             
     def getCmd(self):
         while not self.quit:
-            readable, writable, errored = select.select([0, self.socket], [],[])
-            for conn in readable:
-                if conn == 0:
-                    # read user input from stdin
-                    cmd = sys.stdin.readline().strip()
-                    reqs = cmd.split(" ")
-                    
-                    req = reqs[0]
-    
-                    if req is 'INVALID':
-                        sys.stdout.write("Invalid command.\n")
-                    elif req is 'QUIT':
-                       # client mark itself as "quit"
-                       # also sends request "QUIT" to server
-                       self.quit = True
-                       self.socket.send(cmd)
-                       resp = self.socket.recv(buf_size)
-                       if resp == 'OK_QUIT':
-                           sys.stdout.write("Disconnected.\n")                    
-                       else:
-                           sys.stdout.write("...\n")  
+            try:
+                readable, writable, errored = select.select([0, self.socket], [],[])
+                for conn in readable:
+                    if conn == 0:
+                        # read user input from stdin
+                        cmd = sys.stdin.readline().strip()
+                        reqs = cmd.split(" ")
+                        req = self.checkReq(reqs[0])
+        
+                        if req is 'INVALID':
+                            sys.stdout.write("Invalid command.\n")
+                        elif req is 'QUIT':
+                           # client mark itself as "quit"
+                           # also sends request "QUIT" to server
+                           self.quit = True
+                           self.socket.send(cmd)
+                           resp = self.socket.recv(buf_size)
+                           self.parseResponse(reqs, resp) 
+                        else:
+                            # valid command, forward to server
+                            self.socket.send(cmd)
+                            # receive and parse the response from server
+                            resp = self.socket.recv(buf_size)
+                            self.parseResponse(reqs, resp);
                     else:
-                        # valid command, forward to server
-                        self.socket.send(cmd)
-                        # receive and parse the response from server
-                        resp = self.socket.recv(buf_size)
+                        # conn == self.socket
+                        # got message from one room from server, display it directly
+                        msg = self.socket.recv(buf_size)
+                        # if there is no connection to server, quit 
+                        if not msg:
+                            sys.exit("Lost connection to server.\n")
+                            
+                        self.parseServerMsg(msg);
+            except KeyboardInterrupt:
+                self.quit = True
+                sys.stdout.write('Keyboard Interrupt. Disconnected. \n')
+                self.socket.close()
+                break
+                
+    def parseServerMsg(self, msg):
+        parsed = msg.strip().split(" ")
+        type = parsed[0]    
+        # type could either be MESSAGE or PING
+        if type == 'PING':
+            self.socket.send('PONG')
+        elif type == 'MESSAGE':
+            sys.stdout.write("Message from " + parsed[-1] + " in room " + parsed[1] + ": " + ' '.join(parsed[2:-1]) + "\n")
+            sys.stdout.flush()
+        else:
+            sys.stdout.write("Unparsed message from server:\n " + msg + "\n") 
                         
-                        self.printResponse(reqs, resp);
-                else:
-                    # conn == self.socket
-                    # got message from server, display it directly
-                    resp = self.socket.recv(buf_size)
-                    sys.stdout.write(resp)
-            
-                    
-    def printResponse(self, reqs, resp):
-        parsed = resp.split(" ")
+    def parseResponse(self, reqs, resp):
+        parsed = resp.strip().split(" ")
         status = parsed[0]     
         # response about register
         if status == 'OK_REG':
@@ -102,19 +118,32 @@ class Client:
                 sys.stdout.write("No Available Rooms.\n")  
             else:
                 sys.stdout.write("Available Rooms: " + ' '.join(parsed[1:]) + ".\n")  
-    
+        # response about listing members of a room
+        elif status == 'OK_MEMBERS':
+            if len(parsed) == 1:
+                sys.stdout.write("This room is empty.\n")  
+            else:
+                sys.stdout.write("Members in room " + reqs[1] + ": " + ' '.join(parsed[1:])  + ".\n")
+   
         # response about sending a message
-        elif status == 'OK_MSG':
+        elif status == 'OK_MESSAGE':
             sys.stdout.write("Message sent to room " + reqs[1] + ".\n")            
-        elif status == 'ERR_MSG':
+        elif status == 'ERR_MESSAGE':
             sys.stdout.write("Message failed to be sent to room " + reqs[1] + ".\n")
-        else:
-            sys.stdout.write("Message from server: \n" + resp + "\n")
+        
+        # response about quit
+        elif resp == 'OK_QUIT':
+            sys.stdout.write("Disconnected.\n")                    
+        elif resp == 'ERR_QUIT':
+            sys.stdout.write("...\n")           
             
-    
+        #else:
+            #sys.stdout.write("Unparsed response from server: \n" + resp + "\n")
+            
+            
     def checkReq(self, req):
         # check if the request is valid
-        valid_cmds = ['REGISTER', 'JOIN', 'LEAVE', 'MESSAGE', 'QUIT', 'LIST', 'CREATE', 'LIST_MY_ROOMS']
+        valid_cmds = ['REGISTER', 'JOIN', 'LEAVE', 'MESSAGE', 'QUIT', 'LIST', 'CREATE', 'LIST_MY_ROOMS', 'MEMBERS']
         # return the request type of the cmd
         if req in valid_cmds:
             return req;
