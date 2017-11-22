@@ -7,50 +7,63 @@ import sys
 # 2. PING - Server can gracefully handle client crashes
 # 3. Create another thread to ping the clients periodically
 # 4. QUIT
+# 5. class Room
+# 6. extract validation of user and room
+# 7. use socket to get user name (in listMembers())
+# 8. error handling when no `info`
 
 #####################################################
 # User Class
-#####################################################
 
 class User:
     def __init__(self, name, socket):
         self.name = name
         self.socket = socket
-        self.rooms = []  # list of room names
+        self.rooms = []  # a list of rooms the user is in
 
-    def getName(self):
+    def get_name(self):
         return self.name
 
-    def getRooms(self):
+    def get_rooms(self):
         return self.rooms
 
-    def getSocket(self):
+    def get_socket(self):
         return self.socket
 
-    def joinRoom(self, room):
+    def join_room(self, room):
         if room in self.rooms:
             return "ERR_ALREADY_IN_ROOM"
         else:
             self.rooms.append(room)
             return "OK_JOIN_ROOM"
 
-    def leaveRoom(self, room):
+    def leave_room(self, room):
         if room not in self.rooms:
             return "ERR_NOT_IN_ROOM"
         else:
             self.rooms.remove(room)
             return "OK_LEAVE_ROOM"
 
+# User Class - end
+#####################################################
+
 
 #####################################################
 # globals
-#####################################################
+
 users = set()  # a set of User objects
-rooms = {}  # a dictionary - key: room name  value: set of sockets
+rooms = {}  # a dictionary:  key - room name; value - set of sockets
+
+# globals - end
+#####################################################
+
+
+#####################################################
+# dispatch functions
 
 def register(name, socket):
     for user in users:
-        if user.getName() == name:
+        if user.get_name() == name:
             return "ERR_USERNAME_TAKEN"
 
     newUser = User(name, socket)
@@ -61,65 +74,75 @@ def create(room, socket):
     if room in rooms:
         return "ERR_ROOM_NAME_TAKEN"
 
-    for user in users:
-        if user.getSocket() == socket:
-            rooms[room] = {socket}
-            print ("Created room: ", room)
-            return user.joinRoom(room)
-
-    print ("User not exist")
-    return "ERR_USER_NOT_EXIST"
+    user = find_user(socket)
+    if user:
+        rooms[room] = {socket}
+        print "Created room: ", room
+        return user.join_room(room)
+    else:
+        print "User not exist"
+        return "ERR_USER_NOT_EXIST"
 
 def join(room, socket):
     if room not in rooms:
         return "ERR_ROOM_NOT_EXIST"
 
-    for user in users:
-        if user.getSocket() == socket:
-            rooms[room].add(socket)
-            print ("Joined room: ", rooms)
-            return user.joinRoom(room)
-
-    return "ERR_USER_NOT_EXIST"
+    user = find_user(socket)
+    if user:
+        rooms[room].add(socket)
+        print "Joined room: ", rooms
+        return user.join_room(room)
+    else:
+        return "ERR_USER_NOT_EXIST"
 
 def leave(room, socket):
     if room not in rooms:
         return "ERR_ROOM_NOT_EXIST"
 
-    for user in users:
-        if user.getSocket() == socket:
-            rooms[room].remove(socket)
-            print ("Left room: ", rooms)
-            return user.leaveRoom(room)
+    user = find_user(socket)
+    if user:
+        rooms[room].remove(socket)
+        print "Left room: ", rooms
+        return user.leave_room(room)
+    else:
+        return "ERR_USER_NOT_EXIST"
 
-    return "ERR_USER_NOT_EXIST"
-
-
-def listRooms():
+def list_rooms():
     rms = ' '.join(rooms.keys())
-    print "OK_LIST "+rms
-    return ("OK_LIST "+rms)
+    print "OK_LIST ", rms
+    return ("OK_LIST " + rms)
 
-def listMembers(room):
+def list_members(room):
     members = []
-    sockets = rooms[room]
-    # TODO
+    sockets = rooms[room]  # the set of sockets
+    # TODO: how to better finding user name through user socket - a Room class ??
     for socket in sockets:
-        for user in users:
-            if user.getSocket() == socket:
-                members.append(user.getName())
-    print "OK_MEMBERS "+' '.join(members)
-    return ("OK_MEMBERS "+' '.join(members))
+        user = find_user(socket)
+        if user:
+            members.append(user.get_name())
+
+    print "OK_MEMBERS ", ' '.join(members)
+    return ("OK_MEMBERS " + ' '.join(members))
  
-def messageTo(room, socket):
+def send_message(room, socket):
     if room not in rooms:
         return "ERR_ROOM_NOT_EXIST"
 
-    for user in users:
-        if user.getSocket() == socket:
-            return ("OK_MESSAGE " + user.getName() + ' ' + room)
+    user = find_user(socket)
+    if user:
+        return ("OK_MESSAGE " + user.get_name() + ' ' + room)
+    else:
+        return "ERR_USER_NOT_EXIST"
 
-    return "ERR_USER_NOT_EXIST"
+# helper function
+def find_user(socket):
+    for user in users:
+        if user.get_socket() == socket:
+            return user
+    return None
+
+# dispatch functions - end
+#####################################################
 
 
 def dispatch(data, socket):
@@ -127,6 +150,8 @@ def dispatch(data, socket):
     cmd = args[0]
     if len(args) > 1:
         info = args[1]
+    # TODO: error handling when `info` does not exist
+
     if cmd == "REGISTER":
         return register(info, socket)
     elif cmd == "CREATE":
@@ -136,11 +161,11 @@ def dispatch(data, socket):
     elif cmd == "LEAVE":
         return leave(info, socket)
     elif cmd == "LIST":
-        return listRooms()
+        return list_rooms()
     elif cmd == "MEMBERS":
-        return listMembers(info)
+        return list_members(info)
     elif cmd == "MESSAGE":
-        return messageTo(info, socket)
+        return send_message(info, socket)
     else:
         return "ERR_INVALID"
 
