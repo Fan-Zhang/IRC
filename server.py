@@ -5,13 +5,12 @@ from threading import Thread
 from time import sleep
 
 # TODO:
-# 1. REMOVE EMPTY ROOM
-# 2. QUIT
-# 3. Other members of the room should get noticed when a client has left
-# 4. Check if the user is in the room before removing them from the room if they send "LEAVE xx".
-# 5. leave() method
-# 6. server not exit with keyboard interrupt
-# 7. notice room members when new member joins
+# 1. REMOVE EMPTY ROOM (optional)
+# 2. QUIT (optional)
+# 3. notice room members when a client has left (optional)
+# 5. server not exit properly with keyboard interrupt
+# 6. notice room members when new member joins (optional)
+# 7. dictionary changed size during iteration: when new user or user leave room
 
 
 #####################################################
@@ -64,28 +63,24 @@ class Room:
         return self.name
 
     def add_member(self, socket):
-        if self.name not in rooms:
-            return "ERR_ROOM_NOT_EXIST"
         if socket in self.members:
             return "ERR_ALREADY_IN_ROOM"
         user = find_user(socket)
-        if user:
-            self.members.add(socket)
-            return "OK_JOIN_ROOM"
-        else:
+        if not user:
             return "ERR_USER_NOT_EXIST"
 
+        self.members.add(socket)
+        return "OK_JOIN_ROOM"
+
     def remove_member(self, socket):
-        if self.name not in rooms:
-            return "ERR_ROOM_NOT_EXIST"
         if socket not in self.members:
             return "ERR_NOT_IN_ROOM"
         user = find_user(socket)
-        if user:
-            self.members.remove(socket)
-            return "OK_LEAVE_ROOM"
-        else:
+        if not user:
             return "ERR_USER_NOT_EXIST"
+
+        self.members.remove(socket)
+        return "OK_LEAVE_ROOM"
 
     def get_members(self):
         members = []
@@ -133,13 +128,19 @@ def create(room, socket):
     return new_room.add_member(socket)
 
 def join(room, socket):
+    if room not in rooms:
+        return "ERR_ROOM_NOT_EXIST"
+
     rm = rooms[room]
-    print "Joined room: ", rooms
+    print find_user(socket).get_name(), "joined room", room
     return rm.add_member(socket)
 
 def leave(room, socket):
+    if room not in rooms:
+        return "ERR_ROOM_NOT_EXIST"
+
     rm = rooms[room]
-    print "Left room: ", rooms
+    print find_user(socket).get_name(), "left room", room
     return rm.remove_member(socket)
 
 def list_rooms():
@@ -148,9 +149,11 @@ def list_rooms():
     return ("OK_LIST " + rms)
 
 def list_members(room):
+    if room not in rooms:
+        return "ERR_ROOM_NOT_EXIST"
+
     rm = rooms[room]
     members = rm.get_members()
-
     print "OK_MEMBERS ", ' '.join(members)
     return ("OK_MEMBERS " + ' '.join(members))
  
@@ -172,14 +175,14 @@ def send_message(room, socket, msg_lst):
 
 def send_private_message(receiver, socket, msg_lst):
     user = find_user(socket)
-    if user:
-        user_name = user.get_name()
-        if receiver in users:
-            return ("OK_PMESSAGE " + user_name + ' ' + receiver + ' ' + ' '.join(msg_lst))
-        else:
-            return "ERR_RECVR_NOT_EXIST"
-    else:
+    if not user:
         return "ERR_USER_NOT_EXIST"
+
+    user_name = user.get_name()
+    if receiver in users:
+        return ("OK_PMESSAGE " + user_name + ' ' + receiver + ' ' + ' '.join(msg_lst))
+    else:
+        return "ERR_RECVR_NOT_EXIST"
 
 def quit(socket):
     return "OK_QUIT"
@@ -198,7 +201,6 @@ def find_user(socket):
 # Split these messages and store them in a list, dispatch each of them,
 # store the return values in another list and return the list.
 def dispatch_multi(data, socket):
-    #TODO: change to a string ?
     ret = []
     multi_data = data.strip().split("\n")
     #print 'multi_data:', multi_data
@@ -286,7 +288,7 @@ def handle_client_leave(user):
             # send message to other members of this room
             sckts = room.get_member_sockets()
             for s in sckts:
-                print 'NOTICE user ' + name + ' has left\n'
+                print 'NOTICE: user ' + name + ' has left\n'
                 s.send('NOTICE user ' + name + ' has left\n')
 
         # remove client from user list

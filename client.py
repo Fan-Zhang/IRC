@@ -201,7 +201,7 @@ class Client:
             reqs = self.dequeue_reqs()
             print_ok("Private message sent to user " + reqs[1] + ".\n")
 
-        elif status == 'ERR_RECEIVER_NOT_EXIST':
+        elif status == 'ERR_RECVR_NOT_EXIST':
             reqs = self.dequeue_reqs()
             print_err("User " + reqs[1] + " does not exist.\n") 
 
