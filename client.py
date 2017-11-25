@@ -11,6 +11,23 @@ buf_size = 1024
 def main():
     client = Client()
     client.get_cmd()
+    
+class Pcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    
+def print_ok(msg):
+    print(Pcolors.OKGREEN + msg + Pcolors.ENDC)
+def print_err(msg):
+    print(Pcolors.FAIL + msg + Pcolors.ENDC)
+def print_notice(msg):
+    print(Pcolors.OKBLUE + msg + Pcolors.ENDC)
 
 class Client:
     def __init__(self):
@@ -48,9 +65,9 @@ class Client:
                         req = self.check_req(reqs)
         
                         if req is 'INVALID':
-                            print("Invalid command.\n")
+                            print_err("Invalid command.\n")
                         elif req is 'WRONG_ARGS':
-                            print("Wrong number of arguments for \"" + reqs[0] + "\"\n")
+                            print_err("Wrong number of arguments for \"" + reqs[0] + "\"\n")
                         elif req is 'QUIT':
                            # client mark itself as "quit"
                            # also sends request "QUIT" to server
@@ -59,19 +76,6 @@ class Client:
                            self.enqueue_reqs(reqs)
                            #resp = self.socket.recv(buf_size)
                            #self.parse_response(reqs, resp) 
-                        elif req is 'PFILE':
-                            fname = reqs[2]
-                            fp = open(fname, 'rb')
-                            if not fp:
-                                print("File does not exist.\n")
-                            else:
-                                self.socket.send(cmd)
-                                resp = self.socket.recv(buf_size)
-                                self.parse_response(reqs, resp)
-                                if resp == 'OK_PFILE':
-                                    self.send_file(fp)
-                                    print("\nFile transferred\n")
-                            self.reqs_queue.put(reqs)
                         else:
                             # valid command, forward to server
                             self.socket.send(cmd + '\n')
@@ -110,121 +114,111 @@ class Client:
         if status == 'PING':
             self.socket.send('PONG\n')
         elif status == 'NOTICE':
-            print(' '.join(parsed[1:]) + "\n")
+            print_notice(' '.join(parsed[1:]) + "\n")
             sys.stdout.flush()
         elif status == 'MESSAGE':
-            print("Message from " + parsed[1] + " in room " + parsed[2]+ ": " + ' '.join(parsed[3:]) + "\n")
+            print_notice("Message from " + parsed[1] + " in room " + parsed[2]+ ": " + ' '.join(parsed[3:]) + "\n")
             # MESSAGE lunch_room hello everyone mark17
             sys.stdout.flush()
         elif status == 'PMESSAGE':
-            print("Message from " + parsed[1] + " user " + parsed[2] + ": " + ' '.join(parsed[3:]) + "\n")
+            print_notice("Private message from " + parsed[1] + ": " + ' '.join(parsed[3:]) + "\n")
             sys.stdout.flush()
-
-        elif status =='PFILE':
-            fname = parsed[3]
-            print("Receiving file from " + parsed[1] + " user " + parsed[2] + ": " + fname + " ...")
-            self.receive_file(fname)
-            print("File received.\n")
-            
         elif status == 'OK_REG':
             reqs = self.dequeue_reqs()
-            print("Registered successfully.\n")
+            print_ok("Registered successfully.\n")
         elif status == 'ERR_USERNAME_TAKEN':
             reqs = self.dequeue_reqs()
-            print("Name taken.\n") 
+            print_err("The name has been taken.\n") 
         elif status == 'ERR_USER_NOT_EXIST':
             # this resp can come from many requests when the client tries to create/join/leave/message
             # before register
             reqs = self.dequeue_reqs()
-            print("You need to register first.\n")
+            print_err("You need to register first.\n")
         # response about creating a new room 
         elif status == 'OK_CREATE_ROOM':
             reqs = self.dequeue_reqs()
-            print("Room " + reqs[1] + " created.\n")
+            print_ok("Room " + reqs[1] + " created.\n")
         elif status == 'ERR_ALREADY_IN_ROOM':
             reqs = self.dequeue_reqs()
-            print("You are already in room " + reqs[1] + ".\n")
+            print_err("You are already in room " + reqs[1] + ".\n")
 
         elif status == 'ERR_ROOM_NAME_TAKEN':
             reqs = self.dequeue_reqs()
-            print("Room name " + reqs[1] + " is taken.\n")
+            print_err("Room name " + reqs[1] + " is taken.\n")
                             
         # response about joining a room
         elif status == 'OK_JOIN_ROOM':
             reqs = self.dequeue_reqs()
-            print("Joined room " + reqs[1] + ".\n")
+            print_ok("Joined room " + reqs[1] + ".\n")
 
         elif status == 'ERR_ALREADY_IN_ROOM':
             reqs = self.dequeue_reqs()
-            print("You are already in room " + reqs[1] + ".\n")
+            print_err("You are already in room " + reqs[1] + ".\n")
 
         elif status == 'ERR_ROOM_NOT_EXIST':
             reqs = self.dequeue_reqs()
-            print("There is no room named " + reqs[1] + ".\n")
+            print_err("There is no room named " + reqs[1] + ".\n")
 
         # response about leaving a room
         elif status == 'OK_LEAVE_ROOM':
             reqs = self.dequeue_reqs()
-            print("Left room " + reqs[1] + ".\n")
+            print_ok("Left room " + reqs[1] + ".\n")
 
         elif status == 'ERR_NOT_IN_ROOM':
             reqs = self.dequeue_reqs()
             # also used as response to MESSAGE when the user is not in the room they are sending message to
-            print("You are not in room " + reqs[1] + ".\n")
+            print_err("You are not in room " + reqs[1] + ".\n")
                                                        
         elif status == 'ERR_ROOM_NOT_EXIST':
             reqs = self.dequeue_reqs()
-            print("There is no room named " + reqs[1] + ".\n")
+            print_err("There is no room named " + reqs[1] + ".\n")
 
               
         # response about listing rooms
         elif status == 'OK_LIST':
             reqs = self.dequeue_reqs()
             if len(parsed) == 1:
-                print("No Available Rooms.\n")  
+                print_ok("No Available Rooms.\n")  
             else:
-                print("Available Rooms: " + ' '.join(parsed[1:]) + ".\n")
+                print_ok("Available Rooms: " + ' '.join(parsed[1:]) + ".\n")
               
         # response about listing members of a room
         elif status == 'OK_MEMBERS':
             reqs = self.dequeue_reqs()
             if len(parsed) == 1:
-                print("This room is empty.\n")  
+                print_ok("This room is empty.\n")  
             else:
-                print("Members in room " + reqs[1] + ": " + ' '.join(parsed[1:])  + ".\n")
+                print_ok("Members in room " + reqs[1] + ": " + ' '.join(parsed[1:])  + ".\n")
 
    
         # response about sending a message
         elif status == 'OK_MESSAGE':
             reqs = self.dequeue_reqs()
-            print("Message sent to room " + reqs[1] + ".\n")                        
+            print_ok("Message sent to room " + reqs[1] + ".\n")                        
             
         # response about sending a private message
         elif status == 'OK_PMESSAGE':
             reqs = self.dequeue_reqs()
-            print("Message sent to user " + reqs[1] + ".\n")
+            print_ok("Private message sent to user " + reqs[1] + ".\n")
 
-        elif status == 'ERR_PUSER_NOT_EXIST':
+        elif status == 'ERR_RECEIVER_NOT_EXIST':
             reqs = self.dequeue_reqs()
-            print("User " + reqs[1] + " does not exist.\n") 
+            print_err("User " + reqs[1] + " does not exist.\n") 
 
         # response about quit
         elif status == 'OK_QUIT':
             reqs = self.dequeue_reqs()
-            print("Disconnected.\n")
+            print_ok("Disconnected.\n")
         elif status == 'ERR_QUIT':
             reqs = self.dequeue_reqs()
-            print("...\n")
-        elif status == 'OK_PFILE':
-            reqs = self.dequeue_reqs()
-            print("Sending file ...")
+            print_err("Can't quit now\n")
         else:
             print("Unparsed message from server:\n " + msg + "\n") 
                         
             
     def check_req(self, reqs):
         # check if the request is valid
-        valid_cmds = ['REGISTER', 'JOIN', 'LEAVE', 'MESSAGE', 'PMESSAGE','QUIT', 'LIST', 'CREATE', 'LIST_MY_ROOMS', 'MEMBERS', 'PFILE']
+        valid_cmds = ['REGISTER', 'JOIN', 'LEAVE', 'MESSAGE', 'PMESSAGE','QUIT', 'LIST', 'CREATE', 'LIST_MY_ROOMS', 'MEMBERS']
         # return the request type of the cmd
         if reqs[0] not in valid_cmds:
             return 'INVALID'
@@ -232,29 +226,12 @@ class Client:
             return 'WRONG_ARGS'
         elif ((reqs[0] == 'REGISTER' or reqs[0] == 'JOIN' or reqs[0] == 'CREATE' or reqs[0] == 'MEMBERS' or reqs[0] == 'LEAVE') and len(reqs) != 2 ):  
             return "WRONG_ARGS"
-        elif ((reqs[0] == 'MESSAGE' or reqs[0] == 'PMESSAGE' or reqs[0] == 'PFILE') and len(reqs) < 3):
+        elif ((reqs[0] == 'MESSAGE' or reqs[0] == 'PMESSAGE') and len(reqs) < 3):
             # at least 3 args. Can be more than 3 because spaces are allowed in message body
             return "WRONG_ARGS"        
         else:
             return reqs[0]
         
-    def send_file(self, fp):
-        # read and send the file content
-        batch = fp.read(buf_size)
-        while batch:
-            self.socket.send(batch)
-            batch = fp.read(buf_size)
-        fp.close()
-        
-    def receive_file(self, fname):
-        with open(fname, 'wb') as fp:
-            # open a file with the specified name
-            while True:
-                data = self.socket.recv(buf_size)
-                if not data:
-                    break
-                fp.write(data)
-        fp.close()
         
 if __name__ == '__main__':
     main()
