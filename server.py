@@ -170,6 +170,17 @@ def send_message(room, socket, msg_lst):
     else:
         return "ERR_USER_NOT_EXIST"
 
+def send_private_message(receiver, socket, msg_lst):
+    user = find_user(socket)
+    if user:
+        user_name = user.get_name()
+        if receiver in users:
+            return ("OK_PMESSAGE " + user_name + ' ' + receiver + ' ' + ' '.join(msg_lst))
+        else:
+            return "ERR_RECVR_NOT_EXIST"
+    else:
+        return "ERR_USER_NOT_EXIST"
+
 def quit(socket):
     return "OK_QUIT"
     
@@ -205,20 +216,30 @@ def dispatch(data, socket):
         param = args[1]
 
     if cmd == "REGISTER":
-        return register(param, socket)
+        user_name = param
+        return register(user_name, socket)
     elif cmd == "CREATE":
-        return create(param, socket)
+        room_name = param
+        return create(room_name, socket)
     elif cmd == "JOIN":
-        return join(param, socket)
+        room_name = param
+        return join(room_name, socket)
     elif cmd == "LEAVE":
-        return leave(param, socket)
+        room_name = param
+        return leave(room_name, socket)
     elif cmd == "LIST":
         return list_rooms()
     elif cmd == "MEMBERS":
-        return list_members(param)
+        room_name = param
+        return list_members(room_name)
     elif cmd == "MESSAGE":
+        room_name = param
         msg_lst = args[2:]
-        return send_message(param, socket, msg_lst)
+        return send_message(room_name, socket, msg_lst)
+    elif cmd == "PMESSAGE":
+        receiver = param
+        msg_lst = args[2:]
+        return send_private_message(receiver, socket, msg_lst)
     elif cmd == "QUIT":
         return quit(socket)
     elif cmd == "PONG":
@@ -323,11 +344,18 @@ def main():
                             # it includes username, roomname, and the message body
                             to_send = ' '.join(resp[1:])
 
-                            #user = resp[1]
                             room = resp[2]
                             print 'data:', data
                             for sckt in rooms[room].get_member_sockets():
                                 sckt.send('MESSAGE ' + to_send + '\n')
+                        elif status == "OK_PMESSAGE":
+                            s.send(status + "\n")
+
+                            receiver = resp[2]
+                            sckt = users[receiver].get_socket()
+                            to_send = ' '.join(resp[1:])
+                            sckt.send("PMESSAGE " + to_send + '\n')
+                            
 			# if the client intentionally disconnect from server
                         elif status == "OK_QUIT":
                             s.send(status + "\n")
