@@ -8,9 +8,13 @@ from time import sleep
 # 1. REMOVE EMPTY ROOM (optional)
 # 2. QUIT (optional)
 # 3. notice room members when a client has left (optional)
-# 5. server not exit properly with keyboard interrupt
-# 6. notice room members when new member joins (optional)
-# 7. dictionary changed size during iteration: when new user or user leave room
+# 4. notice room members when new member joins (optional)
+# 5. dictionary changed size during iteration: when new user or user leave room
+#    save dict in a local variable and check if user is active before sending
+# 6. class Server
+# 7. handle LEAVE request when client not in the room ?
+# 8. add `try` `except` to handle keyboard interrupt
+# 9. check not only user name but also socket when new user
 
 
 #####################################################
@@ -261,7 +265,7 @@ def ping_clients(seconds):
             sckt.send('PING\n')
 
 	# give client 1 second to respond, if no response in 1 sec, consider the client as crashed
-	sleep(1)
+	sleep(2)
         for user in users.itervalues():
 	    # if no 'PONG' was received, the client crashes, marked as inactive
 	    if not user.is_active():
