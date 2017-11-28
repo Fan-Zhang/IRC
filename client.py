@@ -3,7 +3,10 @@ import socket
 import select
 import string
 import Queue
-import pdb
+from Crypto.PublicKey import RSA
+from Crypto import Random
+from Crypto.Cipher import PKCS1_OAEP
+import ast
 
 
 buf_size = 1024
@@ -35,11 +38,17 @@ class Client:
         self.host = 'localhost'
         self.quit = False
         self.reqs_queue = Queue.Queue()
+        self.keys = None
+        self.public_key = None
+        self.server_public_key = None
+        self.gen_keys()
 		# Attempt to connect to server
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.host, self.port))
             print('Successfully Connected to Server\n')
+
+            
         except:
             print('Failed to Connect to Server\n')
          
@@ -51,8 +60,24 @@ class Client:
             return self.reqs_queue.get()
         except Queue.Empty:
             print("Numbers of Requests don't match with responses\n")
+    def gen_keys(self):
+        #Generate private and public keys
+        random_generator = Random.new().read
+        self.keys = RSA.generate(1024, random_generator)
+        self.public_key = self.keys.publickey() 
         
-                
+    def encrypt_msg(self, msg):  
+        encryptor = PKCS1_OAEP.new(self.server_public_key)
+        encrypted = encryptor.encrypt(msg)
+        print("encrypted: ", encrypted)
+        return encrypted
+        
+    def decrypt_msg(self,encrypted):
+        decryptor =PKCS1_OAEP.new(self.keys)
+        decrypted = decryptor.decrypt(encrypted)
+        print("decrypted: ", decrypted)
+        return decrypted   
+    
     def get_cmd(self):
         while not self.quit:
             try:
@@ -63,22 +88,32 @@ class Client:
                         cmd = sys.stdin.readline().strip()
                         reqs = cmd.split(" ")
                         req = self.check_req(reqs)
+                        #print("cmd", cmd)
+                        #print("reqs", reqs)
+                        #print("req", req)
         
-                        if req is 'INVALID':
+                        if req == 'INVALID':
                             print_err("Invalid command.\n")
-                        elif req is 'WRONG_ARGS':
+                        elif req == 'WRONG_ARGS':
                             print_err("Wrong number of arguments for \"" + reqs[0] + "\"\n")
-                        elif req is 'QUIT':
+                        elif req == 'MESSAGE':
+                            msg = ' '.join(reqs[2:])
+                            print("msg", msg)
+                            encrypted_msg = self.encrypt_msg(msg)
+                            ncmd = 'MESSAGE ' + reqs[1] + ' ' + encrypted_msg
+                            self.socket.send(ncmd + '\n\n\n')
+                            self.reqs_queue.put(reqs)
+                        elif req == 'QUIT':
                            # client mark itself as "quit"
                            # also sends request "QUIT" to server
                            self.quit = True
-                           self.socket.send(cmd + '\n')
+                           self.socket.send(cmd + '\n\n\n')
                            self.enqueue_reqs(reqs)
                            #resp = self.socket.recv(buf_size)
                            #self.parse_response(reqs, resp) 
                         else:
                             # valid command, forward to server
-                            self.socket.send(cmd + '\n')
+                            self.socket.send(cmd + '\n\n\n')
                             self.reqs_queue.put(reqs)
                             
                     else:
@@ -94,7 +129,7 @@ class Client:
                         #print("queue: ", repr(self.reqs_queue))
             
             except KeyboardInterrupt:
-                self.socket.send('QUIT\n')
+                self.socket.send('QUIT\n\n\n')
                 self.enqueue_reqs(['QUIT'])
                 self.quit = True
                 print('Keyboard Interrupt. Disconnected. \n')
@@ -102,30 +137,41 @@ class Client:
                 break        
                         
     def parse_multi_msg(self, msg):
-        multi_msg = msg.strip().split("\n")
+        multi_msg = msg.strip().split("\n\n\n")
         for message in multi_msg:
             self.parse_msg(message)
     
     def parse_msg(self, msg):
-        parsed = msg.strip().split(" ")
-        status = parsed[0]   
-        # response about register
-        # type could either be MESSAGE or PING
-        if status == 'PING':
-            self.socket.send('PONG\n')
+        parsed = msg.strip().split(" ")        
+        status = parsed[0] 
+        # Message from server
+        if status == 'PUBLIC_KEY':
+            key_str = ' '.join(parsed[1:])
+            self.server_public_key = RSA.importKey(key_str)
+            
+        elif status == 'PING':
+            self.socket.send('PONG\n\n\n')
         elif status == 'NOTICE':
             print_notice(' '.join(parsed[1:]) + "\n")
             sys.stdout.flush()
         elif status == 'MESSAGE':
-            print_notice("Message from " + parsed[1] + " in room " + parsed[2]+ ": " + ' '.join(parsed[3:]) + "\n")
+            msg = ' '.join(parsed[3:]) 
+            decrypted_msg = self.decrypt_msg(msg)
+            print_notice("Message from " + parsed[1] + " in room " + parsed[2]+ ": " + decrypted_msg + "\n")
             # MESSAGE lunch_room hello everyone mark17
             sys.stdout.flush()
         elif status == 'PMESSAGE':
             print_notice("Private message from " + parsed[1] + ": " + ' '.join(parsed[3:]) + "\n")
             sys.stdout.flush()
+            
+            # response about register
         elif status == 'OK_REG':
             reqs = self.dequeue_reqs()
             print_ok("Registered successfully.\n")
+            
+            # send public_key to server
+            self.socket.send('PUBLIC_KEY ' + self.public_key.exportKey('DER') + '\n\n\n')
+            
         elif status == 'ERR_USERNAME_TAKEN':
             reqs = self.dequeue_reqs()
             print_err("The name has been taken.\n") 
@@ -213,7 +259,7 @@ class Client:
             reqs = self.dequeue_reqs()
             print_err("Can't quit now\n")
         else:
-            print("Unparsed message from server:\n " + msg + "\n") 
+            print("Unparsed message from server:\n" + msg + "\n") 
                         
             
     def check_req(self, reqs):

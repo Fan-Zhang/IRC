@@ -4,6 +4,12 @@ import sys
 from threading import Thread
 from time import sleep
 
+from Crypto.PublicKey import RSA
+from Crypto import Random
+from Crypto.Cipher import PKCS1_OAEP
+import ast
+
+
 # TODO:
 # 1. REMOVE EMPTY ROOM (optional)
 # 2. QUIT (optional)
@@ -25,6 +31,7 @@ class User:
         self.name = name
         self.socket = socket
         self.active = True  # the user is connected
+        self.public_key = None
 
     def get_name(self):
         return self.name
@@ -107,6 +114,12 @@ class Room:
 users = {} # a dictionary:  key - user name; value - user object
 rooms = {} # a dictionary:  key - room name; value - room object
 
+# TODO: extract to a function? and call it in main
+# Generate private and public keys
+random_generator = Random.new().read
+server_keys = RSA.generate(1024, random_generator)
+server_public_key = server_keys.publickey()
+
 # globals - end
 #####################################################
 
@@ -161,7 +174,7 @@ def list_members(room):
     print "OK_MEMBERS ", ' '.join(members)
     return ("OK_MEMBERS " + ' '.join(members))
  
-def send_message(room, socket, msg_lst):
+def send_message(room, socket, msg):
     if room not in rooms:
         return "ERR_ROOM_NOT_EXIST"
 
@@ -169,8 +182,11 @@ def send_message(room, socket, msg_lst):
     if user:
         user_name = user.get_name()
         rm = rooms[room]
+        # decrypt the message using sender's public_key
+        
+        decrypted_msg = decrypt_msg(msg)
         if user_name in rm.get_members():
-            return ("OK_MESSAGE " + user_name + ' ' + room + ' ' + ' '.join(msg_lst))
+            return ("OK_MESSAGE " + user_name + ' ' + room + ' ' + decrypted_msg)
             # the msg content is needed in the return value for server to send to other users in the room
         else:
             return "ERR_NOT_IN_ROOM"
@@ -190,6 +206,13 @@ def send_private_message(receiver, socket, msg_lst):
 
 def quit(socket):
     return "OK_QUIT"
+
+# receive public_key of the client  
+def exchange_public_key(key_str, socket):
+    user = find_user(socket)
+    user.public_key = RSA.importKey(key_str)
+    # send public_key to client
+    socket.send('PUBLIC_KEY ' + server_public_key.exportKey('DER') + '\n\n\n')
     
 # helper function
 def find_user(socket):
@@ -198,16 +221,30 @@ def find_user(socket):
             return user
     return None
 
+def encrypt_msg(user, msg):  
+    print("msg: ", msg)
+    encryptor = PKCS1_OAEP.new(user.public_key)
+    encrypted = encryptor.encrypt(msg)
+    print("encrypted: ", encrypted)
+    return encrypted
+        
+def decrypt_msg(encrypted):
+    print("encrypted: ", encrypted)
+    decryptor =PKCS1_OAEP.new(server_keys)
+    decrypted = decryptor.decrypt(encrypted)
+    print("decrypted: ", decrypted)
+    return decrypted
+
 # dispatch functions - end
 #####################################################
 
-# data could be multiple messages queueing in the buffer, deliminated by '\n'
+# data could be multiple messages queueing in the buffer, deliminated by '\n\n\n'
 # Split these messages and store them in a list, dispatch each of them,
 # store the return values in another list and return the list.
 def dispatch_multi(data, socket):
     ret = []
-    multi_data = data.strip().split("\n")
-    #print 'multi_data:', multi_data
+    multi_data = data.strip().split("\n\n\n")
+    print 'multi_data:', multi_data
     for dt in multi_data:
         resp = dispatch(dt, socket)
         if resp:
@@ -221,7 +258,11 @@ def dispatch(data, socket):
     if len(args) > 1:
         param = args[1]
 
-    if cmd == "REGISTER":
+    if cmd == "PUBLIC_KEY":
+        # server sends its own public_key to the client, when receving client's public_key
+        key_str = ' '.join(args[1:])
+        exchange_public_key(key_str, socket)
+    elif cmd == "REGISTER":
         user_name = param
         return register(user_name, socket)
     elif cmd == "CREATE":
@@ -240,8 +281,9 @@ def dispatch(data, socket):
         return list_members(room_name)
     elif cmd == "MESSAGE":
         room_name = param
-        msg_lst = args[2:]
-        return send_message(room_name, socket, msg_lst)
+        #msg_lst = args[2:]
+        msg = ' '.join(args[2:])
+        return send_message(room_name, socket, msg)
     elif cmd == "PMESSAGE":
         receiver = param
         msg_lst = args[2:]
@@ -262,7 +304,7 @@ def ping_clients(seconds):
 	# TODO: dictionary changed size during iteration
         for user in users.itervalues():
             sckt = user.get_socket()
-            sckt.send('PING\n')
+            sckt.send('PING\n\n\n')
 
 	# give client 1 second to respond, if no response in 1 sec, consider the client as crashed
 	sleep(2)
@@ -293,7 +335,7 @@ def handle_client_leave(user):
             sckts = room.get_member_sockets()
             for s in sckts:
                 print 'NOTICE: user ' + name + ' has left\n'
-                s.send('NOTICE user ' + name + ' has left\n')
+                s.send('NOTICE user ' + name + ' has left\n\n\n')
 
         # remove client from user list
         del users[name]
@@ -310,6 +352,8 @@ def main():
     server.setblocking(0)
     server.bind((host,port))
     server.listen(backlog)
+    
+
     print "Server is running on port 8080"
 
     thread = Thread(target = ping_clients, args = (1, ))
@@ -344,32 +388,38 @@ def main():
                         status = resp[0]
                         # TODO: extract to a function
                         if status == "OK_MESSAGE":
-                            s.send(status + "\n")
-                            
-                            # TODO: come up with a better variable name for "to_send", 
-                            # it includes username, roomname, and the message body
-                            to_send = ' '.join(resp[1:])
-
+                            s.send(status + "\n\n\n")
+                                                        
+                            #to_send = ' '.join(resp[1:])
+                            sender = resp[1]
                             room = resp[2]
+                            decrypted_msg = ' '.join(resp[3:])
+                            
+                            
                             print 'data:', data
                             for sckt in rooms[room].get_member_sockets():
-                                sckt.send('MESSAGE ' + to_send + '\n')
+                                # encrypt message using each receiver's public key
+                                user = find_user(sckt)
+                                encrypted_msg = encrypt_msg(user, decrypted_msg)
+                                # send the encrypted message
+                                sckt.send('MESSAGE ' + sender + ' ' + room + ' ' + encrypted_msg + '\n\n\n')
+                                
                         elif status == "OK_PMESSAGE":
-                            s.send(status + "\n")
+                            s.send(status + "\n\n\n")
 
                             receiver = resp[2]
                             sckt = users[receiver].get_socket()
                             to_send = ' '.join(resp[1:])
-                            sckt.send("PMESSAGE " + to_send + '\n')
+                            sckt.send("PMESSAGE " + to_send + '\n\n\n')
                             
 			# if the client intentionally disconnect from server
                         elif status == "OK_QUIT":
-                            s.send(status + "\n")
+                            s.send(status + "\n\n\n")
                             handle_client_leave(find_user(s))
                             inputs.remove(s)
                             # TODO Inform related users about this user's quit
                         else:
-                            s.send(response + "\n")
+                            s.send(response + "\n\n\n")
 		# if the socket is broken
                 except socket.error:
                     handle_client_leave(find_user(s))
