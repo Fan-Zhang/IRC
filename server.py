@@ -10,18 +10,6 @@ from Crypto.Cipher import PKCS1_OAEP
 import ast
 
 
-# TODO:
-# 2. QUIT (optional)
-# 3. notice room members when a client has left (optional)
-# 4. notice room members when new member joins (optional)
-# 5. dictionary changed size during iteration: when new user or user leave room
-#    save dict in a local variable and check if user is active before sending
-# 8. add `try` `except` to handle keyboard interrupt
-# 9. check not only user name but also socket when new user
-#10. read `QUIT` from stdin to disconnect from clients
-
-
-
 # global variable
 my_server = None
 
@@ -60,6 +48,12 @@ class User:
     def get_socket(self):
         return self.socket
 
+    def get_key(self):
+        return self.public_key
+
+    def set_key(self, key):
+        self.public_key = key
+
     # mark the user as active
     def mark_active(self):
         self.active = True
@@ -90,13 +84,12 @@ class Room:
     def add_member(self, socket):
         if socket in self.members:
             return "ERR_ALREADY_IN_ROOM"
-        #user = get_server_instance().find_user(socket)
         user = my_server.find_user(socket)
         if not user:
             return "ERR_USER_NOT_EXIST"
 
         self.members.add(socket)
-        return "OK_JOIN_ROOM"
+        return "OK_JOIN_ROOM " + self.name
 
     def remove_member(self, socket):
         if socket not in self.members:
@@ -106,12 +99,11 @@ class Room:
             return "ERR_USER_NOT_EXIST"
 
         self.members.remove(socket)
-        return "OK_LEAVE_ROOM"
+        return "OK_LEAVE_ROOM " + self.name
 
     def get_members(self):
         members = []
         for socket in self.members:
-            #user = get_server_instance().find_user(socket)
             user = my_server.find_user(socket)
             if user:
                 members.append(user.get_name())
@@ -152,9 +144,9 @@ class Server:
             self.server.setblocking(0)
             self.server.bind((self.host, self.port))
             self.server.listen(self.backlog)
-            print "Server is running on port 8080"
+            print "Server is running on port 8080\n"
         except:
-            print "Failed to start the server"
+            print "Failed to start the server\n"
         else:
             self.inputs.append(self.server)
 
@@ -164,82 +156,83 @@ class Server:
             self.keys = RSA.generate(1024, random_generator)
             self.public_key = self.keys.publickey()
         except:
-            print "Failed to generate RSA keys"
+            print "Failed to generate RSA keys\n"
 
 
     def send_keepalive_messages(self):
-        thread = Thread(target = self._ping_clients, args = (1, ))
+        thread = Thread(name = 'daemon', target = self._ping_clients, args = (1, ))
+        thread.setDaemon(True)
         thread.start()
-
 
     def accept_requests(self):
         while self.running:
-            readable, writable, exceptional = select.select(self.inputs,[],[])
-            for s in readable:
-                # read user input from stdin
-                if s == 0:
-                    cmd = sys.stdin.readline().strip()
-                    print cmd
-                # if the socket is server socket
-                # accept new client connection and add it to the connection list
-                elif s is self.server:
-                    connection, client_address = s.accept()
-                    connection.setblocking(0)
-                    self.inputs.append(connection)
+            try:
+                readable, writable, exceptional = select.select(self.inputs,[],[])
+                for s in readable:
+                    # read command from server stdin
+                    if s == 0:
+                        cmd = sys.stdin.readline().strip()
+                        # server disconnects from clients
+                        if cmd == 'DISCONNECT':
+                            self._disconnect_from_all()
+                        else:
+                            print "Invalid input.\n"
 
-                # if the socket is client socket
-                # read data from the socket and process them
-                else:
-                    data = s.recv(self.size)
-                    if data:
-                        responses = self._dispatch_multi(data, s)
-                        #print 'responses:', responses
+                    # if the socket is server socket
+                    # accept new client connection and add to the connection list
+                    elif s is self.server:
+                        connection, client_address = s.accept()
+                        connection.setblocking(0)
+                        self.inputs.append(connection)
 
-                        for response in responses:
-                            resp = response.split(' ')
-                            #print 'resp:', resp
-                            status = resp[0]
-                            # TODO: extract to a function
-                            if status == "OK_MESSAGE":
-                                s.send(status + "\n\n\n")
-                                                            
-                                #to_send = ' '.join(resp[1:])
-                                sender = resp[1]
-                                room = resp[2]
-                                decrypted_msg = ' '.join(resp[3:])
-                                
-                                
-                                print 'data:', data
-                                for sckt in self.rooms[room].get_member_sockets():
-                                    # encrypt message using each receiver's public key
-                                    user = self.find_user(sckt)
-                                    encrypted_msg = self._encrypt_msg(user, decrypted_msg)
-                                    # send the encrypted message
-                                    sckt.send('MESSAGE ' + sender + ' ' + room + ' ' + encrypted_msg + '\n\n\n')
-                                    
-                            elif status == "OK_PMESSAGE":
-                                s.send(status + "\n\n\n")
-
-                                receiver = resp[2]
-                                sckt = self.users[receiver].get_socket()
-                                to_send = ' '.join(resp[1:])
-                                sckt.send("PMESSAGE " + to_send + '\n\n\n')
-                                
-                            # if the client intentionally disconnect from server
-                            elif status == "OK_QUIT":
-                                s.send(status + "\n\n\n")
-                                self._handle_client_leave(self.find_user(s))
-                                self.inputs.remove(s)
-                            else:
-                                s.send(response + "\n\n\n")
-                    # if the socket is broken
+                    # if the socket is client socket
                     else:
-                        self._handle_client_leave(self.find_user(s))
-                        self.inputs.remove(s)
-            # end of for loop
+                        data = s.recv(self.size)
+
+                        if not data:   # the socket is broken
+                            self._handle_client_leave(self.find_user(s))
+                            self.inputs.remove(s)
+
+                        # read data from socket and process them
+                        else:
+                            responses = self._dispatch_multi(data, s)
+                            for response in responses:
+                                resp = response.split(' ')
+                                status = resp[0]
+
+                                if status == "OK_JOIN_ROOM":
+                                    s.send(status + "\n\n\n")
+                                    room_name = resp[1]
+                                    self._notice_room_members(s, room_name, "joined")
+
+                                elif status == "OK_LEAVE_ROOM":
+                                    s.send(status + "\n\n\n")
+                                    room_name = resp[1]
+                                    self._notice_room_members(s, room_name, "left")
+
+                                elif status == "OK_MESSAGE":
+                                    s.send(status + "\n\n\n")
+                                    self._braodcast_to_room(s, resp[1:])
+                                                                
+                                elif status == "OK_PMESSAGE":
+                                    s.send(status + "\n\n\n")
+                                    self._send_private_message(resp[1:])
+                                    
+                                # if the client intentionally disconnect from server
+                                elif status == "OK_QUIT":
+                                    s.send(status + "\n\n\n")
+                                    self._handle_client_leave(self.find_user(s))
+                                    self.inputs.remove(s)
+                                else:
+                                    s.send(response + "\n\n\n")
+                    # end of for loop
+
+            except KeyboardInterrupt:
+                self._disconnect_from_all()
+            # end of while loop
 
         self.server.close()
-        # end of while loop
+        # end of accept_requests()
 
     def find_user(self, socket):
         for user in self.users.itervalues():
@@ -253,7 +246,6 @@ class Server:
     def _dispatch_multi(self, data, socket):
         ret = []
         multi_data = data.strip().split("\n\n\n")
-        #print 'multi_data:', multi_data
         for dt in multi_data:
             resp = self._dispatch(dt, socket)
             if resp:
@@ -290,13 +282,12 @@ class Server:
             return self._list_members(room_name)
         elif cmd == "MESSAGE":
             room_name = param
-            #msg_lst = args[2:]
             msg = ' '.join(args[2:])
-            return self._send_message(room_name, socket, msg)
+            return self._validate_message(room_name, socket, msg)
         elif cmd == "PMESSAGE":
-            receiver = param
-            msg_lst = args[2:]
-            return self._send_private_message(receiver, socket, msg_lst)
+            receiver_name = param
+            msg = ' '.join(args[2:])
+            return self._validate_private_message(receiver_name, socket, msg)
         elif cmd == "QUIT":
             return self._quit(socket)
         elif cmd == "PONG":
@@ -308,16 +299,17 @@ class Server:
             return "ERR_INVALID"
         
     def _ping_clients(self, seconds):
-        while True:
+        while self.running:
             # iterate all clients and send 'PING' to everyone.
-            # TODO: dictionary changed size during iteration
-            for user in self.users.itervalues():
+            usrs = self.users.itervalues()
+            for user in usrs:
                 sckt = user.get_socket()
                 sckt.send('PING\n\n\n')
 
             # give client 1 second to respond, if no response in 1 sec, consider the client as crashed
             sleep(2)
-            for user in self.users.itervalues():
+            usrs = self.users.itervalues()
+            for user in usrs:
                 # if no 'PONG' was received, the client crashes, marked as inactive
                 if not user.is_active():
                     # handle client crash
@@ -344,8 +336,7 @@ class Server:
                     # send message to other members of this room
                     sckts = room.get_member_sockets()
                     for s in sckts:
-                        print 'NOTICE: user ' + name + ' has left\n'
-                        s.send('NOTICE user ' + name + ' has left\n\n\n')
+                        s.send('NOTICE User ' + name + ' has left\n\n\n')
 
             # remove client from user list
             del self.users[name]
@@ -353,6 +344,9 @@ class Server:
        
 
     def _register_user(self, name, socket):
+        user = self.find_user(socket)
+        if user:
+            return "ERR_ALREADY_REGISTERED"
         if name in self.users:
             return "ERR_USERNAME_TAKEN"
 
@@ -366,7 +360,6 @@ class Server:
 
         new_room = Room(room) 
         self.rooms[room] = new_room
-        print "Created room: ", room
         return new_room.add_member(socket)
 
     def _join_room(self, room, socket):
@@ -374,7 +367,6 @@ class Server:
             return "ERR_ROOM_NOT_EXIST"
 
         rm = self.rooms[room]
-        print self.find_user(socket).get_name(), "joined room", room
         return rm.add_member(socket)
 
     def _leave_room(self, room, socket):
@@ -382,12 +374,10 @@ class Server:
             return "ERR_ROOM_NOT_EXIST"
 
         rm = self.rooms[room]
-        print self.find_user(socket).get_name(), "left room", room
         return rm.remove_member(socket)
 
     def _list_rooms(self):
         rms = ' '.join(self.rooms.keys())
-        print "OK_LIST ", rms
         return ("OK_LIST " + rms)
 
     def _list_members(self, room):
@@ -396,62 +386,102 @@ class Server:
 
         rm = self.rooms[room]
         members = rm.get_members()
-        print "OK_MEMBERS ", ' '.join(members)
         return ("OK_MEMBERS " + ' '.join(members))
+    
+
+    def _quit(self, socket):
+        return "OK_QUIT"
+
+    def _disconnect_from_all(self):
+        for user in self.users.itervalues():
+            sckt = user.get_socket()
+            sckt.send("SERVER_DISCONNECT\n\n\n")
+            sckt.close()
+        self.server.close()
+        sys.exit("Server disconnected.\n")
      
-    def _send_message(self, room, socket, msg):
-        if room not in self.rooms:
+    def _validate_message(self, room_name, sender_socket, msg):
+        if room_name not in self.rooms:
             return "ERR_ROOM_NOT_EXIST"
 
-        user = self.find_user(socket)
-        if user:
-            user_name = user.get_name()
-            rm = self.rooms[room]
-            # decrypt the message using sender's public_key
-            
-            decrypted_msg = self._decrypt_msg(msg)
-            if user_name in rm.get_members():
-                return ("OK_MESSAGE " + user_name + ' ' + room + ' ' + decrypted_msg)
+        sender = self.find_user(sender_socket)
+        if sender:
+            sender_name = sender.get_name()
+            rm = self.rooms[room_name]
+
+            if sender_name in rm.get_members():
+                return ("OK_MESSAGE " + sender_name + ' ' + room_name + ' ' + msg)
                 # the msg content is needed in the return value for server to send to other users in the room
             else:
                 return "ERR_NOT_IN_ROOM"
         else:
             return "ERR_USER_NOT_EXIST"
 
-    def _send_private_message(self, receiver, socket, msg_lst):
-        user = self.find_user(socket)
-        if not user:
+    def _braodcast_to_room(self, sender, msg_lst):
+        sender = msg_lst[0]
+        room = msg_lst[1]
+
+        # decrypt the message using server's private key
+        decrypted_msg = self._decrypt_msg(' '.join(msg_lst[2:]))
+
+        for sckt in self.rooms[room].get_member_sockets():
+            receiver = self.find_user(sckt)
+            # encrypt message using each receiver's public key
+            encrypted_msg = self._encrypt_msg(receiver, decrypted_msg)
+            # send the encrypted message
+            sckt.send('MESSAGE ' + sender + ' ' + room + ' ' + encrypted_msg + '\n\n\n')
+
+    def _notice_room_members(self, socket, room_name, msg):
+        sckts = self.rooms[room_name].get_member_sockets()
+        user_name = self.find_user(socket).get_name()
+        for sckt in sckts:
+            if sckt is not socket:
+                sckt.send('NOTICE User ' + user_name + ' has ' + msg + ' Room ' + room_name + '\n\n\n')
+
+
+    def _validate_private_message(self, receiver_name, sender_socket, msg):
+        sender = self.find_user(sender_socket)
+        if not sender:
             return "ERR_USER_NOT_EXIST"
 
-        user_name = user.get_name()
-        if receiver in self.users:
-            return ("OK_PMESSAGE " + user_name + ' ' + receiver + ' ' + ' '.join(msg_lst))
+        sender_name = sender.get_name()
+        if receiver_name in self.users:
+            return ("OK_PMESSAGE " + sender_name + ' ' + receiver_name + ' ' + msg)
         else:
             return "ERR_RECVR_NOT_EXIST"
 
-    def _quit(self, socket):
-        return "OK_QUIT"
+    def _send_private_message(self, msg_lst):
+        sender_name = msg_lst[0]
+        receiver_name = msg_lst[1]
+        receiver = self.users[receiver_name]
+        receiver_sckt = receiver.get_socket()
+
+        # decrypt the message using server's private key
+        decrypted_msg = self._decrypt_msg(' '.join(msg_lst[2:]))
+        # encrypt message using receiver's public key
+        encrypted_msg = self._encrypt_msg(receiver, decrypted_msg)
+        receiver_sckt.send('PMESSAGE ' + sender_name + ' ' + encrypted_msg + '\n\n\n')
 
     #  send server public key to client after receiving that of the client
     def _send_public_key(self, key_str, socket):
         user = self.find_user(socket)
-        user.public_key = RSA.importKey(key_str)
+        user.set_key(RSA.importKey(key_str))
         # send public_key to client
         socket.send('PUBLIC_KEY ' + self.public_key.exportKey('DER') + '\n\n\n')
         
 
     def _encrypt_msg(self, user, msg):  
-        print("msg: ", msg)
-        encryptor = PKCS1_OAEP.new(user.public_key)
+        #print("msg: ", msg)
+        encryptor = PKCS1_OAEP.new(user.get_key())
         encrypted = encryptor.encrypt(msg)
-        print("encrypted: ", encrypted)
+        #print("encrypted: ", encrypted)
         return encrypted
             
     def _decrypt_msg(self, encrypted):
-        print("encrypted: ", encrypted)
+        #print("encrypted: ", encrypted)
         decryptor =PKCS1_OAEP.new(self.keys)
         decrypted = decryptor.decrypt(encrypted)
-        print("decrypted: ", decrypted)
+        #print("decrypted: ", decrypted)
         return decrypted
 
 # Server Class - end
