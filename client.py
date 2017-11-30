@@ -50,7 +50,7 @@ class Client:
 
             
         except:
-            print('Failed to Connect to Server\n')
+            sys.exit('Failed to Connect to Server\n')
          
     def enqueue_reqs(self, reqs):
         self.reqs_queue.put(reqs)
@@ -66,13 +66,18 @@ class Client:
         self.keys = RSA.generate(1024, random_generator)
         self.public_key = self.keys.publickey() 
         
-    def encrypt_msg(self, msg):  
+    def encrypt_msg(self, msg):
+        # if server_public_key is None, the user hasn't registered yet
+        # encrypt it with client's public key so that it is encrypted.
+        # server will reject the message anyway.
+        if not self.server_public_key:
+            self.server_public_key = self.public_key 
         encryptor = PKCS1_OAEP.new(self.server_public_key)
         encrypted = encryptor.encrypt(msg)
         print("encrypted: ", encrypted)
         return encrypted
         
-    def decrypt_msg(self,encrypted):
+    def decrypt_msg(self, encrypted):
         decryptor =PKCS1_OAEP.new(self.keys)
         decrypted = decryptor.decrypt(encrypted)
         print("decrypted: ", decrypted)
@@ -101,6 +106,13 @@ class Client:
                             print("msg", msg)
                             encrypted_msg = self.encrypt_msg(msg)
                             ncmd = 'MESSAGE ' + reqs[1] + ' ' + encrypted_msg
+                            self.socket.send(ncmd + '\n\n\n')
+                            self.reqs_queue.put(reqs)
+                        elif req == 'PMESSAGE':
+                            msg = ' '.join(reqs[2:])
+                            print("msg", msg)
+                            encrypted_msg = self.encrypt_msg(msg)
+                            ncmd = 'PMESSAGE ' + reqs[1] + ' ' + encrypted_msg
                             self.socket.send(ncmd + '\n\n\n')
                             self.reqs_queue.put(reqs)
                         elif req == 'QUIT':
@@ -148,7 +160,8 @@ class Client:
         if status == 'PUBLIC_KEY':
             key_str = ' '.join(parsed[1:])
             self.server_public_key = RSA.importKey(key_str)
-            
+        elif status == 'SERVER_DISCONNECT':
+            sys.exit("Server disconnected.\n")
         elif status == 'PING':
             self.socket.send('PONG\n\n\n')
         elif status == 'NOTICE':
@@ -161,9 +174,10 @@ class Client:
             # MESSAGE lunch_room hello everyone mark17
             sys.stdout.flush()
         elif status == 'PMESSAGE':
-            print_notice("Private message from " + parsed[1] + ": " + ' '.join(parsed[3:]) + "\n")
-            sys.stdout.flush()
-            
+            msg = ' '.join(parsed[2:]) 
+            decrypted_msg = self.decrypt_msg(msg)
+            print_notice("Private message from " + parsed[1] + ": " + decrypted_msg + "\n")
+            sys.stdout.flush() 
             # response about register
         elif status == 'OK_REG':
             reqs = self.dequeue_reqs()
@@ -175,6 +189,11 @@ class Client:
         elif status == 'ERR_USERNAME_TAKEN':
             reqs = self.dequeue_reqs()
             print_err("The name has been taken.\n") 
+        
+        elif status == 'ERR_ALREADY_REGISTERED':
+            reqs = self.dequeue_reqs()
+            print_err("You have already registered.\n")   
+            
         elif status == 'ERR_USER_NOT_EXIST':
             # this resp can come from many requests when the client tries to create/join/leave/message
             # before register
