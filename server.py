@@ -1,3 +1,8 @@
+# An IRC server programmed in Python
+# Tested with Python 2.7
+# Programmed by Jialu Wang and Fan Zhang for CS594 Programming Project
+
+
 import select
 import socket
 import sys
@@ -8,6 +13,7 @@ from Crypto.PublicKey import RSA
 from Crypto import Random
 from Crypto.Cipher import PKCS1_OAEP
 import ast
+
 
 
 # global variable
@@ -107,7 +113,6 @@ class Room:
             user = my_server.find_user(socket)
             if user:
                 members.append(user.get_name())
-
         return members
 
     def get_member_sockets(self):
@@ -115,6 +120,7 @@ class Room:
 
 # Room Class - end
 #####################################################
+
 
 #####################################################
 # Server Class
@@ -225,14 +231,14 @@ class Server:
                                     self.inputs.remove(s)
                                 else:
                                     s.send(response + "\n\n\n")
-                    # end of for loop
+                    # end of `for` loop
 
             except KeyboardInterrupt:
                 self._disconnect_from_all()
-            # end of while loop
+            # end of `while` loop
 
         self.server.close()
-        # end of accept_requests()
+        # end of `accept_requests()`
 
     def find_user(self, socket):
         for user in self.users.itervalues():
@@ -280,6 +286,10 @@ class Server:
         elif cmd == "MEMBERS":
             room_name = param
             return self._list_members(room_name)
+        elif cmd == "MYROOMS":
+            return self._list_user_rooms(socket)
+        elif cmd == "MYNAME":
+            return self._get_user_name(socket)
         elif cmd == "MESSAGE":
             room_name = param
             msg = ' '.join(args[2:])
@@ -387,7 +397,20 @@ class Server:
         rm = self.rooms[room]
         members = rm.get_members()
         return ("OK_MEMBERS " + ' '.join(members))
-    
+
+    def _list_user_rooms(self, socket):
+        user = self.find_user(socket)
+        if not user:
+            return "ERR_USER_NOT_EXIST"
+        rms = ' '.join(user.get_rooms())
+        return ("OK_MYROOMS " + rms)
+
+    def _get_user_name(self, socket):
+        user = self.find_user(socket)
+        if not user:
+            return "ERR_USER_NOT_EXIST"
+        return ("OK_MYNAME " + user.get_name())
+
 
     def _quit(self, socket):
         return "OK_QUIT"
@@ -401,11 +424,10 @@ class Server:
         sys.exit("Server disconnected.\n")
      
     def _validate_message(self, room_name, sender_socket, msg):
-        if room_name not in self.rooms:
-            return "ERR_ROOM_NOT_EXIST"
-
         sender = self.find_user(sender_socket)
         if sender:
+            if room_name not in self.rooms:
+                return "ERR_ROOM_NOT_EXIST"
             sender_name = sender.get_name()
             rm = self.rooms[room_name]
 

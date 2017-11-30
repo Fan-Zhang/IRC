@@ -1,3 +1,8 @@
+# An IRC server programmed in Python
+# Tested with Python 2.7
+# Programmed by Jialu Wang and Fan Zhang for CS594 Programming Project
+
+
 import sys
 import socket
 import select
