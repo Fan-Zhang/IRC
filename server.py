@@ -90,9 +90,6 @@ class Room:
     def add_member(self, socket):
         if socket in self.members:
             return "ERR_ALREADY_IN_ROOM"
-        user = my_server.find_user(socket)
-        if not user:
-            return "ERR_USER_NOT_EXIST"
 
         self.members.add(socket)
         return "OK_JOIN_ROOM " + self.name
@@ -282,10 +279,10 @@ class Server:
             room_name = param
             return self._leave_room(room_name, socket)
         elif cmd == "LIST":
-            return self._list_rooms()
+            return self._list_all_rooms()
         elif cmd == "MEMBERS":
             room_name = param
-            return self._list_members(room_name)
+            return self._list_room_members(room_name)
         elif cmd == "MYROOMS":
             return self._list_user_rooms(socket)
         elif cmd == "MYNAME":
@@ -299,7 +296,7 @@ class Server:
             msg = ' '.join(args[2:])
             return self._validate_private_message(receiver_name, socket, msg)
         elif cmd == "QUIT":
-            return self._quit(socket)
+            return self._user_quit(socket)
         elif cmd == "PONG":
             # if receive a 'PONG' from some user, mark it as active
             user = self.find_user(socket)
@@ -365,6 +362,9 @@ class Server:
         return "OK_REG"
 
     def _create_room(self, room, socket):
+        user = my_server.find_user(socket)
+        if not user:
+            return "ERR_USER_NOT_EXIST"
         if room in self.rooms:
             return "ERR_ROOM_NAME_TAKEN"
 
@@ -373,6 +373,9 @@ class Server:
         return new_room.add_member(socket)
 
     def _join_room(self, room, socket):
+        user = my_server.find_user(socket)
+        if not user:
+            return "ERR_USER_NOT_EXIST"
         if room not in self.rooms:
             return "ERR_ROOM_NOT_EXIST"
 
@@ -386,11 +389,11 @@ class Server:
         rm = self.rooms[room]
         return rm.remove_member(socket)
 
-    def _list_rooms(self):
+    def _list_all_rooms(self):
         rms = ' '.join(self.rooms.keys())
         return ("OK_LIST " + rms)
 
-    def _list_members(self, room):
+    def _list_room_members(self, room):
         if room not in self.rooms:
             return "ERR_ROOM_NOT_EXIST"
 
@@ -412,7 +415,7 @@ class Server:
         return ("OK_MYNAME " + user.get_name())
 
 
-    def _quit(self, socket):
+    def _user_quit(self, socket):
         return "OK_QUIT"
 
     def _disconnect_from_all(self):
