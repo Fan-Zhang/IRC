@@ -183,7 +183,8 @@ class Client:
             decrypted_msg = self.decrypt_msg(msg)
             print_notice("Private message from " + parsed[1] + ": " + decrypted_msg + "\n")
             sys.stdout.flush() 
-            # response about register
+            
+        # response about register
         elif status == 'OK_REG':
             reqs = self.dequeue_reqs()
             print_ok("Registered successfully.\n")
@@ -204,6 +205,19 @@ class Client:
             # before register
             reqs = self.dequeue_reqs()
             print_err("You need to register first.\n")
+        
+        elif status == 'OK_MYNAME':
+            reqs = self.dequeue_reqs()
+            print_ok("You registered name is " + parsed[1] + ".\n")
+        
+        # response about listing my rooms
+        elif status == 'OK_MYROOMS':
+            reqs = self.dequeue_reqs()
+            if len(parsed) == 1:
+                print_ok("You are not in any room.\n")  
+            else:
+                print_ok("Your Rooms: " + ' '.join(parsed[1:]) + ".\n")
+        
         # response about creating a new room 
         elif status == 'OK_CREATE_ROOM':
             reqs = self.dequeue_reqs()
@@ -288,11 +302,11 @@ class Client:
             
     def check_req(self, reqs):
         # check if the request is valid
-        valid_cmds = ['REGISTER', 'JOIN', 'LEAVE', 'MESSAGE', 'PMESSAGE','QUIT', 'LIST', 'CREATE', 'LIST_MY_ROOMS', 'MEMBERS']
+        valid_cmds = ['REGISTER', 'JOIN', 'LEAVE', 'MESSAGE', 'PMESSAGE','QUIT', 'LIST', 'CREATE', 'MYROOMS', 'MEMBERS', 'MYNAME']
         # return the request type of the cmd
         if reqs[0] not in valid_cmds:
             return 'INVALID'
-        elif ((reqs[0] == 'QUIT' or reqs[0] == 'LIST' or reqs[0] == 'LIST_MY_ROOMS') and len(reqs) != 1):
+        elif ((reqs[0] == 'QUIT' or reqs[0] == 'LIST' or reqs[0] == 'MYROOMS' or reqs[0] == 'MYNAME') and len(reqs) != 1):
             return 'WRONG_ARGS'
         elif ((reqs[0] == 'REGISTER' or reqs[0] == 'JOIN' or reqs[0] == 'CREATE' or reqs[0] == 'MEMBERS' or reqs[0] == 'LEAVE') and len(reqs) != 2 ):  
             return "WRONG_ARGS"
