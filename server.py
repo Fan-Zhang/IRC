@@ -26,7 +26,7 @@ def main():
     my_server = Server()
     my_server.start()
     my_server.generate_RSA_keys()
-    my_server.send_keepalive_messages()
+    my_server.start_a_daemon_thread_to_send_keepalive_messages()
     my_server.accept_requests()
 
 
@@ -165,7 +165,7 @@ class Server:
             print "Failed to generate RSA keys\n"
 
 
-    def send_keepalive_messages(self):
+    def start_a_daemon_thread_to_send_keepalive_messages(self):
         thread = Thread(name = 'daemon', target = self._ping_clients, args = (1, ))
         thread.setDaemon(True)
         thread.start()
