@@ -79,13 +79,11 @@ class Client:
             self.server_public_key = self.public_key 
         encryptor = PKCS1_OAEP.new(self.server_public_key)
         encrypted = encryptor.encrypt(msg)
-        print("encrypted: ", encrypted)
         return encrypted
         
     def decrypt_msg(self, encrypted):
         decryptor =PKCS1_OAEP.new(self.keys)
         decrypted = decryptor.decrypt(encrypted)
-        print("decrypted: ", decrypted)
         return decrypted   
     
     def get_cmd(self):
@@ -293,9 +291,7 @@ class Client:
         elif status == 'OK_QUIT':
             reqs = self.dequeue_reqs()
             print_ok("Disconnected.\n")
-        elif status == 'ERR_QUIT':
-            reqs = self.dequeue_reqs()
-            print_err("Can't quit now\n")
+
         else:
             print("Unparsed message from server:\n" + msg + "\n") 
                         
