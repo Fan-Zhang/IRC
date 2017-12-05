@@ -1,4 +1,4 @@
-# An IRC server programmed in Python
+# An IRC client programmed in Python
 # Tested with Python 2.7
 # Programmed by Jialu Wang and Fan Zhang for CS594 Programming Project
 
